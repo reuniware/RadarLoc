@@ -17,11 +17,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState // N'oubliez pas cet import
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState // Import nécessaire
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
@@ -33,6 +32,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
@@ -46,6 +46,8 @@ import kotlinx.coroutines.withContext
 import java.io.*
 import java.net.HttpURLConnection
 import java.net.URL
+import java.text.DecimalFormat
+import kotlin.io.path.name
 
 // Énumérations et Classes de Données
 enum class SortOrder {
@@ -61,9 +63,7 @@ class MainActivity : ComponentActivity() {
     }
     private var cancellationTokenSource = CancellationTokenSource()
     private lateinit var locationCallback: LocationCallback
-    private var requestingLocationUpdates = false
 
-    // StateHolders
     private var rawRadarDataListStateHolder by mutableStateOf<List<RadarInfo>>(emptyList())
     private var isLoadingStateHolder by mutableStateOf(true)
     private var searchQueryStateHolder by mutableStateOf("")
@@ -75,7 +75,6 @@ class MainActivity : ComponentActivity() {
     private var hasBackgroundLocationPermStateHolder by mutableStateOf(false)
     private var lastKnownLocationTextStateHolder by mutableStateOf("Dernière localisation: Recherche...")
 
-    // Lanceurs de Permissions
     private lateinit var locationPermissionLauncher: ActivityResultLauncher<Array<String>>
     private lateinit var backgroundLocationPermissionLauncher: ActivityResultLauncher<String>
     private lateinit var notificationPermissionLauncher: ActivityResultLauncher<String>
@@ -102,7 +101,6 @@ class MainActivity : ComponentActivity() {
 
                 val displayedRadarData by remember(currentRawRadarData, currentSearchQuery, currentSortOrder, currentIsSortAscending) {
                     derivedStateOf {
-                        Log.d("DisplayedData", "Recalculating displayedRadarData. Query: '$currentSearchQuery', Sort: $currentSortOrder, Asc: $currentIsSortAscending, RawCount: ${currentRawRadarData.size}")
                         val filteredList = if (currentSearchQuery.isBlank()) {
                             currentRawRadarData
                         } else {
@@ -132,16 +130,20 @@ class MainActivity : ComponentActivity() {
 
                 val context = LocalContext.current
                 val scope = rememberCoroutineScope()
-                val listState = rememberLazyListState() // État pour LazyColumn
+                val listState = rememberLazyListState()
 
-                // Effet pour faire défiler jusqu'au radar le plus proche
                 LaunchedEffect(currentNearestRadarId, displayedRadarData) {
                     currentNearestRadarId?.let { radarId ->
                         val index = displayedRadarData.indexOfFirst { it.numeroRadar == radarId }
                         if (index != -1) {
                             val firstVisibleItemIndex = listState.firstVisibleItemIndex
-                            val lastVisibleItemIndex = firstVisibleItemIndex + listState.layoutInfo.visibleItemsInfo.size - 1
-                            if (index < firstVisibleItemIndex || index > lastVisibleItemIndex) {
+                            val layoutInfo = listState.layoutInfo
+                            if (layoutInfo.visibleItemsInfo.isNotEmpty()){ // Check to avoid crash if list is empty
+                                val lastVisibleItemIndex = firstVisibleItemIndex + layoutInfo.visibleItemsInfo.size - 1
+                                if (index < firstVisibleItemIndex || index > lastVisibleItemIndex) {
+                                    listState.animateScrollToItem(index = index)
+                                }
+                            } else if (firstVisibleItemIndex == 0 && index == 0) { // Edge case: list has 1 item and it's the target
                                 listState.animateScrollToItem(index = index)
                             }
                         }
@@ -150,12 +152,9 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(Unit) {
                     isLoadingStateHolder = true
-                    Log.d("MainActivity", "LaunchedEffect: Démarrage chargement initial.")
-
                     if (hasLocationPermission() && userLocationStateHolder == null) {
                         try {
-                            val currentLocation = getCurrentLocation()
-                            currentLocation?.let { updateLocationInfo(it) } ?: fetchLastKnownLocation()
+                            getCurrentLocation()?.let { updateLocationInfo(it) } ?: fetchLastKnownLocation()
                         } catch (e: SecurityException) {
                             lastKnownLocationTextStateHolder = "Dernière localisation: Permission requise"
                         }
@@ -165,15 +164,11 @@ class MainActivity : ComponentActivity() {
 
                     val fileUrl = "https://www.data.gouv.fr/fr/datasets/r/402aa4fe-86a9-4dcd-af88-23753e290a58"
                     val fileName = "radars.csv"
-                    var downloadedFile: File? = null
-                    withContext(Dispatchers.IO) {
-                        downloadedFile = downloadFile(applicationContext, fileUrl, fileName)
-                    }
+                    val downloadedFile = downloadFile(applicationContext, fileUrl, fileName)
 
-                    if (downloadedFile != null && downloadedFile!!.exists()) {
-                        val parsedData = withContext(Dispatchers.Default) { parseCsv(downloadedFile!!) }
+                    if (downloadedFile != null && downloadedFile.exists()) {
+                        val parsedData = parseCsv(downloadedFile)
                         rawRadarDataListStateHolder = parsedData
-                        Log.d("MainActivity", "LaunchedEffect: Données radar parsées: ${parsedData.size} éléments.")
                         userLocationStateHolder?.let { loc ->
                             findNearestRadar(loc, rawRadarDataListStateHolder)?.let { nearest ->
                                 nearestRadarIdStateHolder = nearest.numeroRadar
@@ -181,16 +176,14 @@ class MainActivity : ComponentActivity() {
                         }
                         if (!isTrackingServiceRunningStateHolder && rawRadarDataListStateHolder.isNotEmpty()) {
                             scope.launch {
-                                requestPermissionsAndStartTracking(context, downloadedFile!!.absolutePath)
+                                requestPermissionsAndStartTracking(context, downloadedFile.absolutePath)
                             }
                         }
                     } else {
-                        Log.e("RadarLoc", "Erreur de téléchargement du fichier radar ou fichier non trouvé.")
                         Toast.makeText(context, "Erreur de téléchargement des données radar.", Toast.LENGTH_LONG).show()
                         rawRadarDataListStateHolder = emptyList()
                     }
                     isLoadingStateHolder = false
-                    Log.d("MainActivity", "LaunchedEffect: Chargement initial terminé.")
                 }
 
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
@@ -209,7 +202,8 @@ class MainActivity : ComponentActivity() {
                                 if (hasLocationPermission()) {
                                     scope.launch {
                                         lastKnownLocationTextStateHolder = "Dernière localisation: Recherche..."
-                                        getCurrentLocation()?.let { updateLocationInfo(it) }
+                                        try { getCurrentLocation()?.let { updateLocationInfo(it) } }
+                                        catch (se: SecurityException) { lastKnownLocationTextStateHolder = "Localisation: Permission refusée" }
                                     }
                                 } else {
                                     locationPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
@@ -224,7 +218,7 @@ class MainActivity : ComponentActivity() {
                                         if (radarFile.exists() && rawRadarDataListStateHolder.isNotEmpty()) {
                                             scope.launch { requestPermissionsAndStartTracking(context, radarFile.absolutePath) }
                                         } else {
-                                            Toast.makeText(context, "Données radar non prêtes.", Toast.LENGTH_LONG).show()
+                                            Toast.makeText(context, "Données radar non prêtes ou fichier manquant.", Toast.LENGTH_LONG).show()
                                         }
                                     }
                                 },
@@ -255,7 +249,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 nearestRadarId = currentNearestRadarId,
-                                listState = listState, // Passer listState ici
+                                listState = listState,
                                 modifier = Modifier.weight(1f)
                             )
                         }
@@ -298,6 +292,12 @@ class MainActivity : ComponentActivity() {
         notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
             if (isGranted) {
                 Toast.makeText(this, "Permission de notification accordée.", Toast.LENGTH_SHORT).show()
+                val radarFile = File(applicationContext.filesDir, "radars.csv")
+                if (radarFile.exists() && rawRadarDataListStateHolder.isNotEmpty() && !isTrackingServiceRunningStateHolder) {
+                    lifecycleScope.launch {
+                        requestPermissionsAndStartTracking(this@MainActivity, radarFile.absolutePath)
+                    }
+                }
             } else {
                 Toast.makeText(this, "Permission de notification refusée.", Toast.LENGTH_LONG).show()
             }
@@ -336,11 +336,13 @@ class MainActivity : ComponentActivity() {
         fusedLocationClient.lastLocation
             .addOnSuccessListener { location: Location? ->
                 location?.let { updateLocationInfo(it) }
-                    ?: lifecycleScope.launch { getCurrentLocation()?.let { updateLocationInfo(it) } }
+                    ?: lifecycleScope.launch {
+                        try { getCurrentLocation()?.let { updateLocationInfo(it) } }
+                        catch (se: SecurityException) { lastKnownLocationTextStateHolder = "Localisation: Permission refusée" }
+                    }
             }
             .addOnFailureListener {
                 lastKnownLocationTextStateHolder = "Dernière localisation: Erreur"
-                Log.e("MainActivity", "Erreur fetchLastKnownLocation: ${it.message}")
             }
     }
 
@@ -348,13 +350,15 @@ class MainActivity : ComponentActivity() {
     private suspend fun getCurrentLocation(): Location? {
         if (!hasLocationPermission()) {
             lastKnownLocationTextStateHolder = "Localisation: Permission requise"
-            return null
+            throw SecurityException("Location permission not granted.")
         }
         return try {
-            val priority = Priority.PRIORITY_HIGH_ACCURACY
+            val priority = Priority.PRIORITY_BALANCED_POWER_ACCURACY
             fusedLocationClient.getCurrentLocation(priority, cancellationTokenSource.token).await()
+        } catch (e: SecurityException) {
+            lastKnownLocationTextStateHolder = "Localisation: Permission refusée"
+            throw e
         } catch (e: Exception) {
-            Log.e("MainActivity", "Erreur getCurrentLocation: ${e.message}")
             lastKnownLocationTextStateHolder = "Localisation: Erreur"
             null
         }
@@ -373,7 +377,9 @@ class MainActivity : ComponentActivity() {
     private fun createLocationCallback() {
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(locationResult: LocationResult) {
-                locationResult.lastLocation?.let { updateLocationInfo(it) }
+                locationResult.lastLocation?.let {
+                    updateLocationInfo(it)
+                }
             }
         }
     }
@@ -396,22 +402,19 @@ class MainActivity : ComponentActivity() {
 
     private fun startLocationTrackingServiceWithFilePath(context: Context, radarFilePath: String) {
         if (radarFilePath.isEmpty() || !File(radarFilePath).exists()) {
-            Log.e("MainActivity", "Chemin du fichier radar vide ou fichier inexistant: $radarFilePath")
-            Toast.makeText(context, "Erreur: Fichier radar manquant.", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "Erreur: Fichier radar manquant pour le service.", Toast.LENGTH_LONG).show()
             return
         }
         val intent = Intent(context, LocationTrackingService::class.java).apply {
             action = LocationTrackingService.ACTION_START_TRACKING
             putExtra(LocationTrackingService.EXTRA_RADAR_FILE_PATH, radarFilePath)
         }
-        Log.d("MainActivity", "Tentative de démarrage du service avec le fichier: $radarFilePath")
         try {
             ContextCompat.startForegroundService(context, intent)
             isTrackingServiceRunningStateHolder = true
             Toast.makeText(context, "Suivi en arrière-plan démarré.", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
-            Log.e("MainActivity", "Échec du démarrage de LocationTrackingService", e)
-            Toast.makeText(context, "Erreur au démarrage du service.", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "Erreur au démarrage du service de suivi.", Toast.LENGTH_LONG).show()
             isTrackingServiceRunningStateHolder = false
         }
     }
@@ -420,14 +423,12 @@ class MainActivity : ComponentActivity() {
         val intent = Intent(context, LocationTrackingService::class.java).apply {
             action = LocationTrackingService.ACTION_STOP_TRACKING
         }
-        Log.d("MainActivity", "Tentative d'arrêt du service.")
         try {
             ContextCompat.startForegroundService(context, intent)
             isTrackingServiceRunningStateHolder = false
             Toast.makeText(context, "Suivi en arrière-plan arrêté.", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
-            Log.e("MainActivity", "Échec de l'envoi de la commande d'arrêt au service", e)
-            Toast.makeText(context, "Erreur à l'arrêt du service.", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "Erreur à l'arrêt du service de suivi.", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -436,17 +437,14 @@ class MainActivity : ComponentActivity() {
         val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
         for (service in manager.getRunningServices(Int.MAX_VALUE)) {
             if (serviceClass.name == service.service.className) {
-                Log.d("isServiceRunning", "${serviceClass.simpleName} est actif.")
                 return true
             }
         }
-        Log.d("isServiceRunning", "${serviceClass.simpleName} n'est pas actif.")
         return false
     }
 
-    private fun downloadFile(context: Context, urlString: String, fileName: String): File? {
+    private suspend fun downloadFile(context: Context, urlString: String, fileName: String): File? = withContext(Dispatchers.IO) {
         val outputFile = File(context.filesDir, fileName)
-        // ... (logique de téléchargement comme précédemment)
         var connection: HttpURLConnection? = null
         var inputStream: InputStream? = null
         var outputStream: FileOutputStream? = null
@@ -457,8 +455,7 @@ class MainActivity : ComponentActivity() {
             connection.readTimeout = 15000
             connection.connect()
             if (connection.responseCode != HttpURLConnection.HTTP_OK) {
-                Log.e("DownloadFile", "Serveur HTTP ${connection.responseCode} ${connection.responseMessage}")
-                return null
+                return@withContext null
             }
             inputStream = connection.inputStream
             outputStream = FileOutputStream(outputFile)
@@ -467,30 +464,24 @@ class MainActivity : ComponentActivity() {
             while (inputStream.read(data).also { count = it } != -1) {
                 outputStream.write(data, 0, count)
             }
-            Log.d("DownloadFile", "Fichier téléchargé: ${outputFile.absolutePath}")
-            return outputFile
+            return@withContext outputFile
         } catch (e: Exception) {
-            Log.e("DownloadFile", "Erreur de téléchargement: ${e.message}", e)
             outputFile.delete()
-            return null
+            return@withContext null
         } finally {
-            outputStream?.close()
-            inputStream?.close()
+            try { outputStream?.close() } catch (e: IOException) { /* ignore */ }
+            try { inputStream?.close() } catch (e: IOException) { /* ignore */ }
             connection?.disconnect()
         }
     }
 
-    private fun parseCsv(file: File): List<RadarInfo> {
+    private suspend fun parseCsv(file: File): List<RadarInfo> = withContext(Dispatchers.Default) {
         val radarInfoList = mutableListOf<RadarInfo>()
-        // ... (logique de parsing CSV comme précédemment)
-        if (!file.exists()) {
-            Log.e("ParseCsv", "Fichier non trouvé: ${file.absolutePath}")
-            return radarInfoList
-        }
+        if (!file.exists()) return@withContext radarInfoList
         var lineNumber = 0
         try {
             BufferedReader(FileReader(file)).use { reader ->
-                reader.readLine() // Ignorer l'en-tête
+                reader.readLine()
                 lineNumber++
                 var line: String?
                 while (reader.readLine().also { line = it } != null) {
@@ -511,25 +502,23 @@ class MainActivity : ComponentActivity() {
                                 )
                             )
                         } catch (e: NumberFormatException) {
-                            Log.w("ParseCsv", "Ligne $lineNumber: Erreur format nombre: $line - ${e.message}")
+                            Log.w("ParseCsv", "Ligne $lineNumber: Erreur format nombre: '$line'")
                         } catch (e: IndexOutOfBoundsException) {
-                            Log.w("ParseCsv", "Ligne $lineNumber: Pas assez de colonnes: $line - ${e.message}")
+                            Log.w("ParseCsv", "Ligne $lineNumber: Pas assez de colonnes: '$line'")
                         }
                     } else {
-                        Log.w("ParseCsv", "Ligne $lineNumber: Ligne CSV malformée (pas assez de tokens): $line")
+                        Log.w("ParseCsv", "Ligne $lineNumber: Ligne CSV malformée: '$line'")
                     }
                 }
             }
         } catch (e: Exception) {
-            Log.e("ParseCsv", "Erreur de parsing CSV (ligne $lineNumber): ${e.message}", e)
+            Log.e("ParseCsv", "Erreur parsing CSV (ligne $lineNumber): ${e.message}", e)
         }
-        Log.d("ParseCsv", "${radarInfoList.size} radars parsés.")
-        return radarInfoList
+        return@withContext radarInfoList
     }
 
     private fun findNearestRadar(currentLocation: Location, radars: List<RadarInfo>): RadarInfo? {
         if (radars.isEmpty()) return null
-        // ... (logique findNearestRadar comme précédemment)
         return radars.minByOrNull { radar ->
             val distanceResults = FloatArray(1)
             try {
@@ -540,7 +529,6 @@ class MainActivity : ComponentActivity() {
                 )
                 distanceResults[0]
             } catch (e: IllegalArgumentException) {
-                Log.w("FindNearest", "Lat/Lon invalide pour radar ${radar.numeroRadar}: ${radar.latitude}, ${radar.longitude}")
                 Float.MAX_VALUE
             }
         }
@@ -552,7 +540,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// Composable pour la liste des radars (UI)
+private val coordinateFormatter = DecimalFormat("0.00000")
+
 @Composable
 fun RadarDataTableScreen(
     radarData: List<RadarInfo>,
@@ -562,40 +551,47 @@ fun RadarDataTableScreen(
     isSortAscending: Boolean,
     onSortChange: (SortOrder) -> Unit,
     nearestRadarId: String?,
-    listState: LazyListState, // Accepter LazyListState
+    listState: LazyListState,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier = modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+    Column(modifier = modifier.padding(horizontal = 2.dp, vertical = 4.dp)) {
         TextField(
             value = searchQuery,
             onValueChange = onSearchQueryChange,
-            label = { Text("Rechercher radar (numéro, type)...") },
-            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+            label = { Text("Rechercher radar...", style = MaterialTheme.typography.labelMedium) },
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp, start = 2.dp, end = 2.dp),
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodyMedium
         )
+
         Row(
-            modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant)
-                .padding(vertical = 8.dp, horizontal = 4.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+                .padding(vertical = 8.dp, horizontal = 2.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            HeaderCell("Numéro", SortOrder.BY_RADAR_NUMBER, currentSortOrder, isSortAscending, onSortChange, Modifier.weight(2f))
-            HeaderCell("Date Service", SortOrder.BY_DATE, currentSortOrder, isSortAscending, onSortChange, Modifier.weight(1.5f))
-            Text("Type", modifier = Modifier.weight(1.5f), fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-            Text("VMA", modifier = Modifier.weight(0.7f), fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+            HeaderCell("N° Radar", SortOrder.BY_RADAR_NUMBER, currentSortOrder, isSortAscending, onSortChange, Modifier.weight(1.6f))
+            HeaderCell("Date Svc", SortOrder.BY_DATE, currentSortOrder, isSortAscending, onSortChange, Modifier.weight(1.3f))
+            HeaderCellText("Type", Modifier.weight(1.2f))
+            HeaderCellText("Lat", Modifier.weight(1.3f))
+            HeaderCellText("Lon", Modifier.weight(1.3f))
+            HeaderCellText("VMA", Modifier.weight(0.7f))
         }
 
-        if (radarData.isEmpty()) {
+        if (radarData.isEmpty()) { // Condition simplifiée pour afficher le message
             Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
                 Text(
-                    if (searchQuery.isNotBlank()) "Aucun radar ne correspond à votre recherche."
-                    else "Aucune donnée radar à afficher.",
+                    if (searchQuery.isNotBlank()) "Aucun radar ne correspond à '$searchQuery'."
+                    else "Aucune donnée radar à afficher ou en cours de chargement.",
                     textAlign = TextAlign.Center
                 )
             }
         } else {
-            LazyColumn(state = listState) { // Appliquer listState ici
+            LazyColumn(state = listState) {
                 items(radarData, key = { it.numeroRadar }) { radar ->
                     RadarRow(radar = radar, isNearest = radar.numeroRadar == nearestRadarId)
-                    Divider()
+                    Divider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 }
             }
         }
@@ -612,32 +608,62 @@ fun HeaderCell(
     modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = modifier.clickable { onSortChange(sortOrder) }.padding(horizontal = 4.dp),
+        modifier = modifier
+            .clickable { onSortChange(sortOrder) }
+            .padding(horizontal = 2.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Start
     ) {
-        Text(text, fontWeight = FontWeight.Bold)
+        Text(
+            text,
+            fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Spacer(Modifier.width(2.dp))
         if (currentSortOrder == sortOrder) {
             Icon(
                 imageVector = if (isSortAscending) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward,
                 contentDescription = if (isSortAscending) "Croissant" else "Décroissant",
-                modifier = Modifier.size(18.dp).padding(start = 4.dp)
+                modifier = Modifier.size(14.dp)
             )
         }
     }
 }
 
 @Composable
+fun HeaderCellText(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text,
+        modifier = modifier.padding(horizontal = 2.dp, vertical = 4.dp),
+        fontWeight = FontWeight.Bold,
+        textAlign = TextAlign.Center,
+        style = MaterialTheme.typography.labelSmall,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
+}
+
+@Composable
 fun RadarRow(radar: RadarInfo, isNearest: Boolean) {
     Row(
-        modifier = Modifier.fillMaxWidth()
-            .background(if (isNearest) MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f) else Color.Transparent)
-            .padding(vertical = 8.dp, horizontal = 4.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                if (isNearest) MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
+                else Color.Transparent
+            )
+            .padding(vertical = 5.dp, horizontal = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(radar.numeroRadar, modifier = Modifier.weight(2f))
-        Text(radar.dateMiseEnService, modifier = Modifier.weight(1.5f), style = MaterialTheme.typography.bodySmall)
-        Text(radar.typeRadar, modifier = Modifier.weight(1.5f), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
-        Text(radar.vma.toString(), modifier = Modifier.weight(0.7f), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+        val textStyle = MaterialTheme.typography.bodySmall
+
+        Text(radar.numeroRadar, modifier = Modifier.weight(1.6f), style = textStyle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(radar.dateMiseEnService, modifier = Modifier.weight(1.3f), style = textStyle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(radar.typeRadar, modifier = Modifier.weight(1.2f).padding(horizontal = 1.dp), style = textStyle, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(coordinateFormatter.format(radar.latitude), modifier = Modifier.weight(1.3f).padding(horizontal = 1.dp), style = textStyle, textAlign = TextAlign.End, maxLines = 1)
+        Text(coordinateFormatter.format(radar.longitude), modifier = Modifier.weight(1.3f).padding(horizontal = 1.dp), style = textStyle, textAlign = TextAlign.End, maxLines = 1)
+        Text(radar.vma.toString(), modifier = Modifier.weight(0.7f), style = textStyle, textAlign = TextAlign.Center, maxLines = 1)
     }
 }
