@@ -7,7 +7,6 @@ import android.content.pm.PackageManager
 import android.location.Location
 import android.os.Build
 import android.os.Bundle
-import android.os.Looper
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -16,7 +15,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.size
@@ -48,11 +46,6 @@ import kotlinx.coroutines.withContext
 import java.io.*
 import java.net.HttpURLConnection
 import java.net.URL
-import kotlin.io.path.name
-import kotlin.math.atan2
-import kotlin.math.cos
-import kotlin.math.sin
-import kotlin.math.sqrt
 
 // Énumérations et Classes de Données
 enum class SortOrder {
@@ -60,29 +53,6 @@ enum class SortOrder {
     BY_RADAR_NUMBER,
     BY_DATE
 }
-
-data class RadarInfo(
-    val numeroRadar: String,
-    val typeRadar: String,
-    val dateMiseEnService: String,
-    val latitude: Double,
-    val longitude: Double,
-    val vma: Int
-) : Serializable {
-    fun toSerializable(): RadarInfoSerializable {
-        return RadarInfoSerializable(
-            numeroRadar = this.numeroRadar,
-            latitude = this.latitude,
-            longitude = this.longitude
-        )
-    }
-}
-
-data class RadarInfoSerializable(
-    val numeroRadar: String,
-    val latitude: Double,
-    val longitude: Double
-) : Serializable
 
 class MainActivity : ComponentActivity() {
 

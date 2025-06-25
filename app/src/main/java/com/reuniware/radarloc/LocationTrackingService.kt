@@ -16,7 +16,6 @@ import android.os.IBinder
 import android.os.Looper // Ensure this import is present if you use Looper directly in FusedLocationProviderClient callbacks
 import android.util.Log
 import android.widget.Toast
-import androidx.compose.foundation.layout.size
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import com.google.android.gms.location.FusedLocationProviderClient
@@ -34,35 +33,6 @@ import java.io.BufferedReader
 import java.io.File
 import java.io.FileReader
 import java.io.IOException
-import java.io.Serializable
-
-//// Make sure these data classes are defined identically to how they are in MainActivity
-//// or in a shared module/file.
-//data class RadarInfo(
-//    val numeroRadar: String,
-//    val typeRadar: String,
-//    val dateMiseEnService: String,
-//    val latitude: Double,
-//    val longitude: Double,
-//    val vma: Int
-//) : Serializable {
-//    fun toSerializable(): RadarInfoSerializable {
-//        return RadarInfoSerializable(
-//            numeroRadar = this.numeroRadar,
-//            latitude = this.latitude,
-//            longitude = this.longitude
-//        )
-//    }
-//}
-
-/*
-data class RadarInfoSerializable(
-    val numeroRadar: String,
-    val latitude: Double,
-    val longitude: Double
-) : Serializable
-*/
-
 
 class LocationTrackingService : Service() {
 
