@@ -40,6 +40,7 @@
         <service
             android:name=".LocationTrackingService"
             android:foregroundServiceType="location"
+            android:enabled="true"
             android:exported="false" />
 
     </application>

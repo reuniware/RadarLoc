@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.location.Location
 import android.os.Build
 import android.os.Bundle
+import android.os.Looper
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -40,9 +41,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import com.google.android.gms.location.FusedLocationProviderClient
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
+import com.google.android.gms.location.*
 import com.google.android.gms.tasks.CancellationTokenSource
 import com.reuniware.radarloc.ui.theme.RadarLocTheme
 import kotlinx.coroutines.Dispatchers
@@ -74,6 +73,8 @@ class MainActivity : ComponentActivity() {
         LocationServices.getFusedLocationProviderClient(this)
     }
     private var cancellationTokenSource = CancellationTokenSource()
+    private lateinit var locationCallback: LocationCallback
+    private var requestingLocationUpdates = false
 
     private var radarDataListStateHolder by mutableStateOf<List<RadarInfo>>(emptyList())
     private var isLoadingStateHolder by mutableStateOf(true)
@@ -94,6 +95,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        createLocationCallback()
         initializePermissionLaunchers()
         checkInitialPermissions()
 
@@ -123,13 +125,11 @@ class MainActivity : ComponentActivity() {
                     isLoadingStateHolder = true
                     isLoading = true
 
-                    if (hasLocationPermission() && userLocationStateHolder == null) { // Eviter de refaire si déjà fait dans onCreate
+                    if (hasLocationPermission() && userLocationStateHolder == null) {
                         try {
                             fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
                                 if (location != null) {
-                                    userLocationStateHolder = location
-                                    lastKnownLocationTextStateHolder =
-                                        "Dernière loc: Lat=${String.format("%.4f", location.latitude)}, Lon=${String.format("%.4f", location.longitude)}"
+                                    updateLocationInfo(location)
                                 } else {
                                     lastKnownLocationTextStateHolder = "Dernière localisation: Non disponible"
                                 }
@@ -192,19 +192,14 @@ class MainActivity : ComponentActivity() {
                             onClick = {
                                 if (hasLocationPermission()) {
                                     scope.launch {
+                                        stopLocationUpdates() // Stop existing updates
                                         val loc = getCurrentLocation()
                                         if (loc != null) {
-                                            userLocationStateHolder = loc
-                                            lastKnownLocationTextStateHolder =
-                                                "Loc actuelle: Lat=${String.format("%.4f", loc.latitude)}, Lon=${String.format("%.4f", loc.longitude)}"
-                                            if (radarDataListStateHolder.isNotEmpty()) {
-                                                val nearest = findNearestRadar(loc, radarDataListStateHolder)
-                                                nearestRadarIdStateHolder = nearest?.numeroRadar
-                                                nearestRadarId = nearest?.numeroRadar
-                                            }
+                                            updateLocationInfo(loc)
                                         } else {
                                             Toast.makeText(context, "Localisation non trouvée.", Toast.LENGTH_SHORT).show()
                                         }
+                                        startLocationUpdates() // Restart updates
                                     }
                                 } else {
                                     locationPermissionLauncher.launch(
@@ -274,6 +269,54 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun createLocationCallback() {
+        locationCallback = object : LocationCallback() {
+            override fun onLocationResult(locationResult: LocationResult) {
+                super.onLocationResult(locationResult)
+                locationResult.lastLocation?.let { location ->
+                    updateLocationInfo(location)
+                }
+            }
+        }
+    }
+
+    private fun updateLocationInfo(location: Location) {
+        userLocationStateHolder = location
+        lastKnownLocationTextStateHolder =
+            "Dernière loc: Lat=${String.format("%.4f", location.latitude)}, Lon=${String.format("%.4f", location.longitude)}"
+
+        if (radarDataListStateHolder.isNotEmpty()) {
+            val nearest = findNearestRadar(location, radarDataListStateHolder)
+            nearestRadarIdStateHolder = nearest?.numeroRadar
+        }
+    }
+
+    private fun startLocationUpdates() {
+        if (!hasLocationPermission()) return
+
+        val locationRequest = LocationRequest.create().apply {
+            interval = 10000
+            fastestInterval = 5000
+            priority = Priority.PRIORITY_HIGH_ACCURACY
+        }
+
+        try {
+            fusedLocationClient.requestLocationUpdates(
+                locationRequest,
+                locationCallback,
+                Looper.getMainLooper()
+            )
+            requestingLocationUpdates = true
+        } catch (e: SecurityException) {
+            Log.e("MainActivity", "SecurityException in startLocationUpdates: ${e.message}")
+        }
+    }
+
+    private fun stopLocationUpdates() {
+        fusedLocationClient.removeLocationUpdates(locationCallback)
+        requestingLocationUpdates = false
+    }
+
     private fun fetchLastKnownLocation() {
         try {
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
@@ -285,9 +328,7 @@ class MainActivity : ComponentActivity() {
             fusedLocationClient.lastLocation
                 .addOnSuccessListener { location: Location? ->
                     if (location != null) {
-                        userLocationStateHolder = location
-                        lastKnownLocationTextStateHolder =
-                            "Dernière loc: Lat=${String.format("%.4f", location.latitude)}, Lon=${String.format("%.4f", location.longitude)}"
+                        updateLocationInfo(location)
                     } else {
                         lastKnownLocationTextStateHolder = "Dernière localisation: Non disponible"
                     }
@@ -307,8 +348,11 @@ class MainActivity : ComponentActivity() {
         if (cancellationTokenSource.token.isCancellationRequested) {
             cancellationTokenSource = CancellationTokenSource()
         }
-        if (hasLocationPermission() && userLocationStateHolder == null) {
-            fetchLastKnownLocation()
+        if (hasLocationPermission()) {
+            if (userLocationStateHolder == null) {
+                fetchLastKnownLocation()
+            }
+            startLocationUpdates()
         }
     }
 
@@ -317,6 +361,7 @@ class MainActivity : ComponentActivity() {
         if (!cancellationTokenSource.token.isCancellationRequested) {
             cancellationTokenSource.cancel()
         }
+        stopLocationUpdates()
     }
 
     private fun initializePermissionLaunchers() {
@@ -328,6 +373,7 @@ class MainActivity : ComponentActivity() {
 
             if (fineLocationGranted || coarseLocationGranted) {
                 fetchLastKnownLocation()
+                startLocationUpdates()
                 if (radarDataListStateHolder.isNotEmpty() && !isTrackingServiceRunningStateHolder) {
                     lifecycleScope.launch {
                         requestPermissionsAndStartTracking(applicationContext, radarDataListStateHolder)
@@ -423,25 +469,29 @@ class MainActivity : ComponentActivity() {
             (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotificationPermission())
         ) {
             Log.w("MainActivity", "Tentative de démarrage du service mais une permission manque encore.")
-            if (isTrackingServiceRunningStateHolder) isTrackingServiceRunningStateHolder = false // Mettre à jour l'état si on ne peut pas démarrer
+            if (isTrackingServiceRunningStateHolder) isTrackingServiceRunningStateHolder = false
             return
         }
 
         if (currentRadarData.isNotEmpty()) {
             val intent = Intent(context, LocationTrackingService::class.java).apply {
                 action = LocationTrackingService.ACTION_START_TRACKING
+                Toast.makeText(context, "BEFORE", Toast.LENGTH_SHORT).show()
                 val serializableList = ArrayList(currentRadarData.map { it.toSerializable() })
+                Toast.makeText(context, "AFTER", Toast.LENGTH_SHORT).show()
                 putExtra(LocationTrackingService.EXTRA_RADAR_LIST, serializableList)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Toast.makeText(context, "BEFORE startForegroundService", Toast.LENGTH_SHORT).show()
                 context.startForegroundService(intent)
             } else {
+                Toast.makeText(context, "BEFORE startService", Toast.LENGTH_SHORT).show()
                 context.startService(intent)
             }
             isTrackingServiceRunningStateHolder = true
             Toast.makeText(context, "Suivi en arrière-plan démarré.", Toast.LENGTH_SHORT).show()
         } else {
-            if (isTrackingServiceRunningStateHolder) isTrackingServiceRunningStateHolder = false // Mettre à jour l'état si la liste est vide
+            if (isTrackingServiceRunningStateHolder) isTrackingServiceRunningStateHolder = false
         }
     }
 
@@ -449,7 +499,7 @@ class MainActivity : ComponentActivity() {
         val intent = Intent(context, LocationTrackingService::class.java).apply {
             action = LocationTrackingService.ACTION_STOP_TRACKING
         }
-        context.startService(intent) // Ou stopService(intent) si approprié, mais startService avec ACTION_STOP est courant
+        context.startService(intent)
         isTrackingServiceRunningStateHolder = false
         Toast.makeText(context, "Suivi en arrière-plan arrêté.", Toast.LENGTH_SHORT).show()
     }
@@ -484,7 +534,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// --- Data classes and Helper Functions ---
 data class RadarInfo(
     val numeroRadar: String,
     val typeRadar: String,
@@ -494,13 +543,11 @@ data class RadarInfo(
     val vma: Int
 )
 
-// Mettez cette data class dans son propre fichier (par exemple, RadarInfoSerializable.kt)
-// ou assurez-vous qu'elle est définie UNE SEULE FOIS dans votre projet.
-// data class RadarInfoSerializable(
-// val numeroRadar: String,
-// val latitude: Double,
-// val longitude: Double
-// ) : Serializable
+data class RadarInfoSerializable(
+    val numeroRadar: String,
+    val latitude: Double,
+    val longitude: Double
+) : Serializable
 
 fun RadarInfo.toSerializable(): RadarInfoSerializable {
     return RadarInfoSerializable(this.numeroRadar, this.latitude, this.longitude)
@@ -612,7 +659,6 @@ fun findNearestRadar(userLocation: Location, radarList: List<RadarInfo>): RadarI
     return nearestRadar
 }
 
-// --- UI Composable Functions ---
 @Composable
 fun RowScope.TableCell(
     text: String,
@@ -775,18 +821,3 @@ fun RadarDataTableScreen(
         }
     }
 }
-
-// Assurez-vous que RadarInfoSerializable est défini UNE SEULE FOIS,
-// idéalement dans son propre fichier (par exemple, RadarInfoSerializable.kt dans le même package).
-// S'il est ici, commentez ou supprimez les autres déclarations.
-/*
-package com.reuniware.radarloc // Ou le package approprié si dans un autre fichier
-
-import java.io.Serializable
-
-data class RadarInfoSerializable(
-    val numeroRadar: String,
-    val latitude: Double,
-    val longitude: Double
-) : Serializable
-*/

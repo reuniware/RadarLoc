@@ -39,12 +39,14 @@ import java.io.Serializable
 import kotlin.collections.remove
 import kotlin.text.format
 
+/*
 // Make sure this matches the structure expected by MainActivity
 data class RadarInfoSerializable(
     val numeroRadar: String,
     val latitude: Double, // Corrected to kotlin.Double
     val longitude: Double // Corrected to kotlin.Double
 ) : Serializable
+*/
 
 class LocationTrackingService : Service() {
 
@@ -76,13 +78,20 @@ class LocationTrackingService : Service() {
 
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(locationResult: LocationResult) {
-                Toast.makeText(applicationContext, "LST:onLocationResult", Toast.LENGTH_SHORT).show()
+                Toast.makeText(applicationContext, "LST:onLocationResult " + locationResult.lastLocation?.latitude + " " + locationResult.lastLocation?.longitude, Toast.LENGTH_SHORT)
+                    .show()
                 locationResult.lastLocation?.let { location ->
                     // Log.d(TAG, "New location: ${location.latitude}, ${location.longitude}")
                     checkProximityToRadars(location)
                 }
             }
         }
+
+        // These 2 lines of code should not be called here but for now it is the only working stuff.
+        // Put here because onStartCommand is never called and I cannot find why.
+        startForeground(NOTIFICATION_ID, createForegroundNotification("Suivi GPS actif..."))
+        startLocationUpdates()
+
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -90,12 +99,12 @@ class LocationTrackingService : Service() {
         when (intent?.action) {
             ACTION_START_TRACKING -> {
                 val serializableList = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    intent.getSerializableExtra(EXTRA_RADAR_LIST, ArrayList::class.java) as? ArrayList<RadarInfoSerializable>
+                    intent.getSerializableExtra(EXTRA_RADAR_LIST, ArrayList::class.java) as? ArrayList<*>
                 } else {
                     @Suppress("DEPRECATION")
-                    intent.getSerializableExtra(EXTRA_RADAR_LIST) as? ArrayList<RadarInfoSerializable>
+                    intent.getSerializableExtra(EXTRA_RADAR_LIST) as? ArrayList<*>
                 }
-                radarList = serializableList ?: kotlin.collections.emptyList()
+                radarList = (serializableList ?: kotlin.collections.emptyList()) as List<RadarInfoSerializable>
 
                 if (radarList.isEmpty()) {
                     Log.w(TAG, "Radar list is empty. Stopping service.")
@@ -106,17 +115,12 @@ class LocationTrackingService : Service() {
                 startForeground(NOTIFICATION_ID, createForegroundNotification("Suivi GPS actif..."))
                 startLocationUpdates()
                 Log.i(TAG, "Location tracking service started with ${radarList.size} radars.")
-                return androidx.core.app.ServiceCompat.START_STICKY
+                return START_STICKY
             }
             ACTION_STOP_TRACKING -> {
                 Log.i(TAG, "Stopping location tracking service.")
                 stopLocationUpdates()
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                } else {
-                    @Suppress("DEPRECATION")
-                    stopForeground(true)
-                }
+                stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return android.app.Service.START_NOT_STICKY
             }
@@ -139,6 +143,7 @@ class LocationTrackingService : Service() {
         }
         try {
             fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper())
+            Toast.makeText(applicationContext, "LST:requestLocationUpdates", Toast.LENGTH_SHORT).show()
         } catch (unlikely: java.lang.SecurityException) {
             Log.e(TAG, "Lost location permission during request. $unlikely")
             stopSelf()
