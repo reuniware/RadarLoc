@@ -254,7 +254,7 @@ class LocationTrackingService : Service() {
         val alertSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
 
         val alertNotification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("Alerte Radar à Proximité")
+            .setContentTitle("Alerte Radar ")
             .setContentText(alertText)
             .setSmallIcon(R.mipmap.ic_launcher) // Ensure this icon exists
             .setContentIntent(pendingIntent)
