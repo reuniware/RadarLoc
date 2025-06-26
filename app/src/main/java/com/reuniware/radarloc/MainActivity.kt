@@ -634,7 +634,7 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) { // Android 12+ (API 31)
             permissions.add(Manifest.permission.BLUETOOTH_SCAN)
             // Ajoutez BLUETOOTH_CONNECT si votre service en a besoin pour obtenir le nom, se connecter, etc.
-            // permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
+            permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
 
             // Selon la documentation Android :
             // "Si votre application utilise les résultats de la recherche Bluetooth pour déduire la position physique,
