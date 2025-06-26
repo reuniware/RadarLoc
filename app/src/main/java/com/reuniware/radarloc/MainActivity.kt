@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -696,6 +697,7 @@ fun HeaderCellText(text: String, modifier: Modifier = Modifier) {
 
 @Composable
 fun RadarRow(radar: RadarInfo, isNearest: Boolean) {
+    val context = LocalContext.current // <--- ADD THIS LINE
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -703,6 +705,29 @@ fun RadarRow(radar: RadarInfo, isNearest: Boolean) {
                 if (isNearest) MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
                 else Color.Transparent
             )
+            .clickable { // Rendre la ligne cliquable
+                // Geo URI pour les applications de cartographie natives
+                val nativeMapUri = Uri.parse("geo:${radar.latitude},${radar.longitude}?q=${radar.latitude},${radar.longitude}(Radar ${radar.numeroRadar})&z=15")
+                val nativeMapIntent = Intent(Intent.ACTION_VIEW, nativeMapUri)
+
+                // Vérifier d'abord si une application native peut gérer l'intention
+                if (nativeMapIntent.resolveActivity(context.packageManager) != null) {
+                    context.startActivity(nativeMapIntent)
+                } else {
+                    // Si aucune application native n'est trouvée, construire une URL Google Maps pour le navigateur web
+                    Toast.makeText(context, "Aucune application de carte trouvée. Ouverture dans le navigateur...", Toast.LENGTH_LONG).show()
+                    val webMapUrl = "https://www.google.com/maps/search/?api=1&query=${radar.latitude},${radar.longitude}"
+                    val webMapIntent = Intent(Intent.ACTION_VIEW, Uri.parse(webMapUrl))
+
+                    // Vérifier si un navigateur web peut gérer cette URL (devrait toujours être le cas)
+                    if (webMapIntent.resolveActivity(context.packageManager) != null) {
+                        context.startActivity(webMapIntent)
+                    } else {
+                        // Cas très improbable où même un navigateur n'est pas disponible
+                        Toast.makeText(context, "Aucun navigateur web trouvé.", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
             .padding(vertical = 5.dp, horizontal = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

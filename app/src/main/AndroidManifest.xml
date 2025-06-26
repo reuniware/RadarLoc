@@ -1,6 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+    xmlns:tools="http://schemas.android.com/tools"
+    package="com.reuniware.radarloc">
+
+    <queries>
+
+        <!-- Permet à l'application de découvrir les applications capables de gérer les URI geo: -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+
+            <data android:scheme="geo" />
+        </intent>
+
+        <!-- Permet de découvrir les applications capables de gérer les URI http/https -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+
+            <data android:scheme="http" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+
+            <data android:scheme="https" />
+        </intent>
+
+        <!-- Si vous voulez cibler spécifiquement Google Maps, vous pouvez aussi ajouter son package -->
+        <package android:name="com.google.android.apps.maps" />
+    </queries>
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -26,10 +52,10 @@
         tools:targetApi="31">
 
         <activity
-            android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
-            android:theme="@style/Theme.RadarLoc">
+            android:theme="@style/Theme.RadarLoc"
+            android:name="com.reuniware.radarloc.MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -38,10 +64,10 @@
 
         <!-- Déclaration du Service -->
         <service
-            android:name=".LocationTrackingService"
             android:foregroundServiceType="location"
             android:enabled="true"
-            android:exported="false" />
+            android:exported="false"
+            android:name="com.reuniware.radarloc.LocationTrackingService" />
 
     </application>
 </manifest>
