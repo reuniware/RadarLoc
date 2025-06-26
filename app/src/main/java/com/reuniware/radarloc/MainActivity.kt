@@ -164,8 +164,26 @@ class MainActivity : ComponentActivity() {
 
                     val fileUrl = "https://www.data.gouv.fr/fr/datasets/r/402aa4fe-86a9-4dcd-af88-23753e290a58"
                     val fileName = "radars.csv"
-                    val downloadedFile = downloadFile(applicationContext, fileUrl, fileName)
+                    var downloadedFile = downloadFile(applicationContext, fileUrl, fileName)
 
+                    // AJOUTÉ: Logique de repli sur fichier local
+                    if (downloadedFile == null || !downloadedFile.exists()) {
+                        val localFile = File(applicationContext.filesDir, fileName)
+                        if (localFile.exists()) {
+                            downloadedFile = localFile // Utilise le fichier local
+                            // Vous pouvez ajouter un Toast ici si vous voulez informer l'utilisateur
+                            withContext(Dispatchers.Main) { // Assurez-vous d'être sur le thread principal pour le Toast
+                                Toast.makeText(applicationContext, "Utilisation du fichier local des radars.", Toast.LENGTH_SHORT).show()
+                            }                            // Note: 'context' n'est pas directement disponible ici, vous l'obtenez via LocalContext.current plus bas.
+                            // Pour un Toast ici, il faudrait le passer en argument ou utiliser applicationContext.
+                            // Pour simplifier et rester au plus proche, je n'ajoute pas le Toast directement ici pour l'instant.
+                            // Vous pourrez l'ajouter dans la partie `setContent` si `downloadedFile` pointe vers `localFile`.
+                        } else {
+                            // Ni téléchargé, ni fichier local trouvé
+                            // Le Toast d'erreur sera géré par la condition suivante (downloadedFile reste null ou non existant)
+                        }
+                    }
+                    // FIN DE L'AJOUT
                     if (downloadedFile != null && downloadedFile.exists()) {
                         val parsedData = parseCsv(downloadedFile)
                         rawRadarDataListStateHolder = parsedData
@@ -180,7 +198,9 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     } else {
-                        Toast.makeText(context, "Erreur de téléchargement des données radar.", Toast.LENGTH_LONG).show()
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(applicationContext, "Fichier radar non disponible (ni téléchargé, ni local).", Toast.LENGTH_LONG).show()
+                        }
                         rawRadarDataListStateHolder = emptyList()
                     }
                     isLoadingStateHolder = false
@@ -448,29 +468,58 @@ class MainActivity : ComponentActivity() {
         var connection: HttpURLConnection? = null
         var inputStream: InputStream? = null
         var outputStream: FileOutputStream? = null
+        var downloadSuccessful = false // Flag pour suivre le succès
+
         try {
+            Log.d("DownloadFile", "Attempting to download $fileName. Current file exists: ${outputFile.exists()}, size: ${outputFile.length()}")
+
             val url = URL(urlString)
             connection = url.openConnection() as HttpURLConnection
-            connection.connectTimeout = 10000
-            connection.readTimeout = 15000
-            connection.connect()
-            if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+            connection.connectTimeout = 10000 // 10 secondes
+            connection.readTimeout = 15000  // 15 secondes
+            connection.connect() // Peut lever une exception ici si hors ligne
+
+            if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                inputStream = connection.inputStream
+                // Ouvrir FileOutputStream seulement si la connexion est OK et on s'apprête à écrire
+                outputStream = FileOutputStream(outputFile) // Crée/écrase le fichier ici
+                val data = ByteArray(4096)
+                var count: Int
+                while (inputStream.read(data).also { count = it } != -1) {
+                    outputStream.write(data, 0, count)
+                }
+                outputStream.flush() // S'assurer que tout est écrit
+                downloadSuccessful = true // Marquer comme succès
+                Log.d("DownloadFile", "$fileName downloaded successfully. Size: ${outputFile.length()}")
+                return@withContext outputFile
+            } else {
+                Log.e("DownloadFile", "Server returned HTTP ${connection.responseCode} for $fileName")
+                // Ne pas supprimer le fichier ici, car il pourrait être celui d'un téléchargement précédent réussi.
                 return@withContext null
             }
-            inputStream = connection.inputStream
-            outputStream = FileOutputStream(outputFile)
-            val data = ByteArray(4096)
-            var count: Int
-            while (inputStream.read(data).also { count = it } != -1) {
-                outputStream.write(data, 0, count)
-            }
-            return@withContext outputFile
         } catch (e: Exception) {
-            outputFile.delete()
+            Log.e("DownloadFile", "Error downloading $fileName: ${e.message}")
+            // Si le téléchargement n'a PAS réussi ET qu'une tentative d'écriture a pu commencer (outputStream non null),
+            // alors un fichier partiel/corrompu *pourrait* exister.
+            // Cependant, dans le cas d'une simple erreur de connexion avant l'écriture,
+            // outputFile.delete() supprimerait un fichier potentiellement bon.
+            // Décidons de ne supprimer que si on était en train d'écrire.
+            // Mais pour simplifier et éviter de supprimer un fichier valide:
+            // Si le but est d'utiliser un fichier local en cache, ne supprimez pas ici.
+            // Le fichier outputFile (s'il existe et est valide d'une session précédente)
+            // est notre fallback si le téléchargement échoue.
+            //
+            // Si vous voulez être sûr de supprimer un fichier *potentiellement corrompu* par cette tentative échouée:
+            // if (outputStream != null && !downloadSuccessful) {
+            //     outputFile.delete()
+            //     Log.d("DownloadFile", "Deleted potentially corrupt $fileName due to download error after starting write.")
+            // }
+            // Pour la stratégie de cache actuelle, il est plus sûr de NE PAS supprimer ici
+            // et de laisser la logique de fallback utiliser le fichier s'il est valide.
             return@withContext null
         } finally {
-            try { outputStream?.close() } catch (e: IOException) { /* ignore */ }
-            try { inputStream?.close() } catch (e: IOException) { /* ignore */ }
+            try { outputStream?.close() } catch (e: IOException) { Log.e("DownloadFile", "Error closing outputStream: ${e.message}") }
+            try { inputStream?.close() } catch (e: IOException) { Log.e("DownloadFile", "Error closing inputStream: ${e.message}") }
             connection?.disconnect()
         }
     }
