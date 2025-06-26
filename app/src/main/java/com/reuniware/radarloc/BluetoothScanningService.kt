@@ -50,6 +50,7 @@ class BluetoothScanningService : Service() {
                     try { deviceName = device.name ?: "Unknown Device" } catch (e: SecurityException) { Log.e("BluetoothScanService","SecurityException for device.name (pre-S): ${e.message}") }
                 }
                 Log.i("BluetoothScanService", "Device found: $deviceName - ${device.address}")
+                Toast.makeText(applicationContext, "BSS: found: ${device.address} / $deviceName", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -122,7 +123,7 @@ class BluetoothScanningService : Service() {
     // La vérification réelle des permissions est cruciale avant d'appeler des API protégées.
     @RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Toast.makeText(applicationContext, "BSS:onStartCommand - Action: ${intent?.action}", Toast.LENGTH_SHORT).show()
+        Toast.makeText(applicationContext, "BSS :onStartCommand - Action: ${intent?.action}", Toast.LENGTH_SHORT).show()
 
         Log.i("BluetoothScanService", "Service onStartCommand.")
 
