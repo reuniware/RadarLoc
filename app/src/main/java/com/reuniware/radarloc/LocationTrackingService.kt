@@ -43,7 +43,7 @@ class LocationTrackingService : Service() {
 
     private var radarList: List<RadarInfoSerializable> = emptyList()
     private val notifiedRadars = mutableSetOf<String>()
-    private val PROXIMITY_RADIUS_METERS = 1000f // 1 km (1km)
+    private val PROXIMITY_RADIUS_METERS = 250f // 1 km (1km)
 
     companion object {
         const val ACTION_START_TRACKING = "com.reuniware.radarloc.action.START_TRACKING"
