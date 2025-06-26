@@ -63,4 +63,6 @@ dependencies {
 
     implementation("com.google.android.gms:play-services-location:21.2.0") // Or the latest version
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.0") // Or the latest version
+
+    implementation("androidx.navigation:navigation-compose:2.7.7") // Use the latest version
 }

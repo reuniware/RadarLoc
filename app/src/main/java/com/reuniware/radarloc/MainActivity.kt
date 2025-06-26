@@ -98,11 +98,13 @@ class MainActivity : ComponentActivity() {
         }
         isTrackingServiceRunningStateHolder = isServiceRunning(this, LocationTrackingService::class.java)
 
+/*
         // --- AJOUT : Vérifier et demander les permissions Bluetooth au démarrage ---
         // Vous pouvez déplacer cet appel si vous souhaitez le déclencher
         // sur une action utilisateur spécifique plutôt qu'au démarrage de l'activité.
         checkAndRequestBluetoothPermissions()
         // --- FIN AJOUT ---
+*/
 
         setContent {
             RadarLocTheme {
@@ -335,6 +337,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+/*
         // --- AJOUT : Initialisation du launcher pour les permissions Bluetooth ---
         bluetoothPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
             val allGranted = permissions.entries.all { it.value }
@@ -350,6 +353,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         // --- FIN AJOUT ---
+*/
 
     }
 
@@ -612,6 +616,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+/*
     // --- AJOUT : Logique pour les permissions et le service Bluetooth ---
     private fun checkAndRequestBluetoothPermissions() {
         val requiredPermissions = getRequiredBluetoothPermissions()
@@ -628,6 +633,7 @@ class MainActivity : ComponentActivity() {
             bluetoothPermissionLauncher.launch(permissionsToRequest.toTypedArray())
         }
     }
+*/
 
     private fun getRequiredBluetoothPermissions(): Array<String> {
         val permissions = mutableListOf<String>()
