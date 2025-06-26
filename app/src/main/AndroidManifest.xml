@@ -28,6 +28,9 @@
         <package android:name="com.google.android.apps.maps" />
     </queries>
 
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
@@ -68,6 +71,10 @@
             android:enabled="true"
             android:exported="false"
             android:name="com.reuniware.radarloc.LocationTrackingService" />
+
+        <service android:name="com.reuniware.radarloc.BluetoothScanningService"
+            android:foregroundServiceType="connectedDevice"
+            />
 
     </application>
 </manifest>
