@@ -21,10 +21,13 @@ import android.bluetooth.le.ScanSettings
 import android.os.Build
 import android.util.Log
 import android.widget.Toast
+import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
 import androidx.compose.foundation.layout.size
 import androidx.core.app.ActivityCompat // Pour vérifier les permissions
 import androidx.core.app.NotificationCompat // Ajout pour construire la notification
+import kotlin.math.pow
+
 //import androidx.wear.compose.foundation.size
 
 class BluetoothScanningService : Service() {
@@ -42,13 +45,48 @@ class BluetoothScanningService : Service() {
     // Ensemble pour garder une trace des adresses MAC déjà loguées DANS CETTE SESSION DE SCAN
     private val loggedDevicesInThisScanSession = mutableSetOf<String>()
 
+    /**
+     * Puissance de transmission de référence à 1 mètre.
+     * Cette valeur est typique pour de nombreux beacons BLE, mais l'idéal est de la calibrer
+     * pour l'appareil spécifique que vous suivez, si possible.
+     * Une valeur courante est autour de -59 dBm à -65 dBm.
+     */
+    private val TX_POWER_AT_1_METER = -59 // dBm (À AJUSTER/CALIBRER SI POSSIBLE)
+
+    /**
+     * Facteur environnemental (N). Varie généralement entre 2 (espace libre) et 4 (environnement obstrué).
+     * Une valeur de 2.0 est un point de départ.
+     */
+    private val ENVIRONMENTAL_FACTOR_N = 2.0 // (À AJUSTER/CALIBRER SI POSSIBLE)
+
+    /**
+     * Calcule la distance approximative en mètres.
+     * @param rssi La force du signal reçu en dBm.
+     * @param txPower La puissance de transmission de référence de l'appareil à 1 mètre en dBm.
+     * @return La distance estimée en mètres.
+     */
+    private fun calculateDistance(rssi: Int, txPower: Int): Double {
+        if (rssi == 0) {
+            return -1.0 // Indicateur d'une valeur RSSI invalide ou non disponible
+        }
+        // Formule de base pour la distance basée sur RSSI et TxPower
+        // distance = 10 ^ ((txPower - RSSI) / (10 * N))
+        val ratio = (txPower - rssi) / (10 * ENVIRONMENTAL_FACTOR_N)
+        return 10.0.pow(ratio)
+    }
+    // --- FIN DES AJOUTS POUR LE CALCUL DE DISTANCE ---
+
     @SuppressLint("MissingPermission") // Les permissions sont vérifiées avant d'appeler les fonctions de scan
     private val leScanCallback = object : ScanCallback() {
+        @RequiresApi(Build.VERSION_CODES.O)
         override fun onScanResult(callbackType: Int, result: ScanResult?) {
             super.onScanResult(callbackType, result)
             result?.let { scanResult ->
                 val device = scanResult.device
                 val deviceAddress = device.address
+
+                // Récupérer le RSSI avant la condition pour pouvoir l'utiliser dans le 'else' aussi
+                val rssi = scanResult.rssi
 
                 // Vérifier si l'appareil a déjà été logué dans CETTE session de scan
                 // .add() retourne true si l'élément n'était pas déjà dans le set (et l'ajoute)
@@ -78,15 +116,18 @@ class BluetoothScanningService : Service() {
                         }
                     }
 
-                    val rssi = scanResult.rssi
-                    val txPowerString = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        if (scanResult.txPower != ScanResult.TX_POWER_NOT_PRESENT) {
-                            "${scanResult.txPower} dBm"
-                        } else {
-                            "N/A"
-                        }
+                    // --- AJOUT/MODIFICATION : CALCUL ET FORMATAGE DE LA DISTANCE ---
+                    val estimatedDistance = calculateDistance(rssi, TX_POWER_AT_1_METER)
+                    val distanceString = if (estimatedDistance > 0) String.format("%.2f m", estimatedDistance) else "N/A"
+                    // --- FIN AJOUT/MODIFICATION ---
+
+
+                    // Modifiez légèrement le log de TxPower pour être plus informatif
+                    val txPowerFromScan = scanResult.txPower
+                    val txPowerString = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && txPowerFromScan != ScanResult.TX_POWER_NOT_PRESENT) {
+                        "$txPowerFromScan dBm (Actual)"
                     } else {
-                        "N/A"
+                        "N/A (Using default: $TX_POWER_AT_1_METER dBm for distance calc)"
                     }
 
                     val advertisingSidString = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -141,6 +182,7 @@ class BluetoothScanningService : Service() {
       Name: $deviceName
       Address: $deviceAddress
       RSSI: $rssi dBm
+      Estimated Distance: $distanceString 
       TX Power: $txPowerString
       Advertising SID: $advertisingSidString
       Data Status: $dataStatusString
