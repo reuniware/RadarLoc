@@ -82,7 +82,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var notificationPermissionLauncher: ActivityResultLauncher<String>
 
     // --- AJOUT pour les permissions Bluetooth ---
-    private lateinit var bluetoothPermissionLauncher: ActivityResultLauncher<Array<String>>
+    //private lateinit var bluetoothPermissionLauncher: ActivityResultLauncher<Array<String>>
     // --- FIN AJOUT ---
 
     override fun onCreate(savedInstanceState: Bundle?) {

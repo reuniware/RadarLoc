@@ -73,9 +73,5 @@
             android:exported="false"
             android:name="com.reuniware.radarloc.LocationTrackingService" />
 
-        <service android:name="com.reuniware.radarloc.BluetoothScanningService"
-            android:foregroundServiceType="connectedDevice"
-            />
-
     </application>
 </manifest>
